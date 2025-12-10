@@ -17,6 +17,7 @@ from PySide6.QtCore import Qt, QSize, QThread, Signal
 from model import AgeEstimatorModel
 from dataset_prepare import make_transforms
 from inference import load_model_from_hf, corn_inference
+from face_alignment import FaceAligner
 
 
 # =====================
@@ -35,6 +36,7 @@ class FaceProcessingWorker(QThread):
         self.device = device
         self.image_size = 224
         self.max_age = 116
+        self.face_aligner = FaceAligner()
 
     def run(self):
         try:
@@ -82,8 +84,8 @@ class FaceProcessingWorker(QThread):
         result = {
             'face1_detected': True,
             'face2_detected': True,
-            'age1': age1,
-            'age2': age2,
+            'age1': int(age1),
+            'age2': int(age2),
             'confidence1': face1['confidence'],
             'confidence2': face2['confidence'],
             'similarity_score': similarity_score,
@@ -180,28 +182,50 @@ class FaceProcessingWorker(QThread):
 
     def compare_face_embeddings(self, face1_crop, face2_crop) -> float:
         """Compare two face crops and return similarity score"""
-        # Normalize crops
-        crop1_norm = cv2.cvtColor(face1_crop, cv2.COLOR_RGB2BGR)
-        crop2_norm = cv2.cvtColor(face2_crop, cv2.COLOR_RGB2BGR)
-        
-        # Resize to same size
-        crop1_resized = cv2.resize(crop1_norm, (224, 224))
-        crop2_resized = cv2.resize(crop2_norm, (224, 224))
-        
-        # Flatten and normalize
-        crop1_flat = crop1_resized.flatten().astype(np.float32)
-        crop2_flat = crop2_resized.flatten().astype(np.float32)
-        
-        crop1_flat /= np.linalg.norm(crop1_flat)
-        crop2_flat /= np.linalg.norm(crop2_flat)
-        
-        # Calculate cosine similarity
-        similarity = np.dot(crop1_flat, crop2_flat)
-        
-        # Normalize to 0-1 range
-        similarity = (similarity + 1) / 2
-        
-        return float(similarity)
+        try:
+            # Ensure crops are valid
+            if face1_crop is None or face1_crop.size == 0 or face2_crop is None or face2_crop.size == 0:
+                return 0.5
+            
+            # Align faces for better comparison
+            landmarks1 = self.face_aligner.get_facial_landmarks(face1_crop)
+            landmarks2 = self.face_aligner.get_facial_landmarks(face2_crop)
+            
+            if landmarks1 is not None:
+                face1_aligned = self.face_aligner.align_face(face1_crop, landmarks1)
+            else:
+                face1_aligned = face1_crop
+            
+            if landmarks2 is not None:
+                face2_aligned = self.face_aligner.align_face(face2_crop, landmarks2)
+            else:
+                face2_aligned = face2_crop
+            
+            # Normalize crops
+            crop1_norm = cv2.cvtColor(face1_aligned, cv2.COLOR_RGB2BGR)
+            crop2_norm = cv2.cvtColor(face2_aligned, cv2.COLOR_RGB2BGR)
+            
+            # Resize to same size
+            crop1_resized = cv2.resize(crop1_norm, (224, 224))
+            crop2_resized = cv2.resize(crop2_norm, (224, 224))
+            
+            # Flatten and normalize
+            crop1_flat = crop1_resized.flatten().astype(np.float32)
+            crop2_flat = crop2_resized.flatten().astype(np.float32)
+            
+            crop1_flat /= np.linalg.norm(crop1_flat)
+            crop2_flat /= np.linalg.norm(crop2_flat)
+            
+            # Calculate cosine similarity
+            similarity = np.dot(crop1_flat, crop2_flat)
+            
+            # Normalize to 0-1 range
+            similarity = (similarity + 1) / 2
+            
+            return float(similarity)
+        except Exception as e:
+            print(f"Error comparing faces: {e}")
+            return 0.5
 
 
 # =====================
@@ -272,7 +296,7 @@ class FaceMatchingApp(QMainWindow):
         main_layout.setContentsMargins(20, 20, 20, 20)
         
         # Title
-        title = QLabel("🔍 Face Matching & Age Estimation")
+        title = QLabel("Face Matching & Age Estimation")
         title_font = QFont()
         title_font.setPointSize(20)
         title_font.setBold(True)
@@ -449,8 +473,8 @@ class FaceMatchingApp(QMainWindow):
             </tr>
             <tr>
                 <td style="padding: 10px; border: 1px solid #999;"><b>Predicted Age</b></td>
-                <td style="padding: 10px; border: 1px solid #999;">{age1:.1f} years</td>
-                <td style="padding: 10px; border: 1px solid #999;">{age2:.1f} years</td>
+                <td style="padding: 10px; border: 1px solid #999;">{int(age1)} years</td>
+                <td style="padding: 10px; border: 1px solid #999;">{int(age2)} years</td>
             </tr>
             <tr style="background-color: #f5f5f5;">
                 <td style="padding: 10px; border: 1px solid #999;"><b>Face Confidence</b></td>
