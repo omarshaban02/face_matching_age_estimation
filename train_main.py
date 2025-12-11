@@ -3,19 +3,11 @@ from torch.utils.data import DataLoader
 from dataset_prepare import UTKFaceHFDataset, make_transforms, collate_fn
 from model import AgeEstimatorModel
 from config import cfg
+from datasets import load_dataset
+import numpy as np
 
 def main():
-    try:
-        ds_info = load_dataset(cfg.HF_DATASET, split="train", streaming=False)
-        split_name = "train"
-    except Exception:
-        # fallback single split
-        ds_info = load_dataset(cfg.HF_DATASET, split="train")
-        split_name = "train"
-
-    from datasets import load_dataset
-    import numpy as np
-
+    # Prepare dataset
     full = load_dataset("py97/UTKFace-Cropped", split="train")
 
     # Keep only rows where 'jpg.chip.jpg' is not None
